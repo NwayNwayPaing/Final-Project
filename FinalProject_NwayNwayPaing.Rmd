@@ -1,0 +1,318 @@
+---
+title: "Final Project"
+author: "Nway"
+date: "2022-10-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Open Packages
+```{r}
+pacman::p_load(odds.n.ends, blorr, lmtest, car,  broom, tidyverse,haven, table1)
+```
+
+### Import the data
+```{r}
+temp <- tempfile(fileext = ".zip")
+download.file(url  = "https://www.cdc.gov/brfss/annual_data/2020/files/LLCP2020XPT.zip", destfile = temp)
+BRFSS_2020 <- read_xpt(file = temp)
+```
+
+### Code Book
+https://www.cdc.gov/brfss/annual_data/2020/pdf/codebook20_llcp-v2-508.pdf
+
+### Data cleaning
+```{r}
+pre_diabetes <- BRFSS_2020 %>%
+  dplyr::select(`_AGE80`, `_SEX`,`_IMPRACE`,`MARITAL`,`_EDUCAG`,`_RFSMOK3`,`_RFBING5`,`_TOTINDA`,PREDIAB1, `_BMI5`) %>%
+  mutate(`_SEX` = recode_factor(`_SEX`,
+                              '2'= 'Female',
+                              '1'= 'Male')) %>%
+  mutate(`_IMPRACE` = recode_factor(`_IMPRACE`,
+                              '1'= 'White, Non-Hispanic',
+                              '2'= 'Black, Non-Hispanic',
+                              '3'= 'Asian, Non-Hispanic',
+                              '4'= 'American Indian/Alaskan Native, Non-Hispanic',
+                              '5'= 'Hispanic',
+                              '6'= 'Other race, Non-Hispanic'), levels(1:6)) %>%
+  mutate(MARITAL = recode_factor(MARITAL , 
+                              '1'= 'Married', 
+                              '2'= 'Divorced', 
+                              '3'= 'Widowed', 
+                              '4'= 'Separated',
+                              '5'= 'Never married',
+                              '6'= 'A member of an unmarried couple',
+                              '9'= NA_character_)) %>%
+  mutate(`_EDUCAG` = recode_factor(`_EDUCAG`,
+                              '1' = 'Did not graduate High School',
+                              '2' = 'Graduated High School',
+                              '3' = 'Attended College or Technical School',
+                              '4' = 'Graduated from College or Technical School',
+                              '9' = NA_character_))%>%
+  mutate(`_RFSMOK3` = recode_factor(`_RFSMOK3`,
+                              '1' = 'Not current user',
+                              '2' = 'Current user',
+                              '9' = NA_character_)) %>%
+  mutate(`_RFBING5` = recode_factor(`_RFBING5`,
+                              '1' = 'No',
+                              '2' = 'Yes',
+                              '9' = NA_character_)) %>%
+  mutate(`_TOTINDA` = recode_factor(`_TOTINDA`, 
+                              '1' ='Had physical activities' ,
+                              '2' ='No physical activities', 
+                              '9' = NA_character_)) %>%
+  mutate(PREDIAB1 = recode_factor(PREDIAB1,                              
+                              '1' ='Yes' ,
+                              '2' ='Yes, during pregnancy', 
+                              '3' ='No',
+                              '7' = NA_character_,
+                              '9' = NA_character_)) %>%
+  rename(age       = `_AGE80`) %>%
+  rename(sex       =`_SEX`) %>%
+  rename(race      = `_IMPRACE`) %>%
+  rename(marital   = MARITAL) %>%
+  rename(education = `_EDUCAG`) %>%
+  rename(smoking   = `_RFSMOK3`) %>%
+  rename(alcohol   = `_RFBING5`) %>%
+  rename(phy_act   = `_TOTINDA`) %>%
+  rename(pre_dia   = PREDIAB1 ) %>%
+  rename(bmi       = `_BMI5`)
+
+# Prediabetes as binary dependent variable (Yes, No)
+pre_diabetes <- pre_diabetes %>%
+  mutate(predia_binary = case_when(pre_dia %in% c("Yes","Yes, during pregnancy") ~ 1,
+                                   pre_dia %in% c("No") ~ 0),
+  predia_binary        = factor(predia_binary, 0:1, c("No Prediabetes", "Prediabetes")))
+table(pre_diabetes$pre_dia, pre_diabetes$predia_binary, useNA="always") #check re-categorization works
+
+# Re-categorization of marital status
+pre_diabetes <- pre_diabetes %>%
+  mutate(marital_new   = case_when(marital %in% c("Married") ~ 1,
+                                   marital %in% c("Divorced","Widowed","Separated") ~ 2,
+                                   marital %in% c("Never married","A member of an unmarried couple") ~ 3),
+  marital_new          = factor(marital_new, 1:3, c("Married","Previously Married","Single")))
+table(pre_diabetes$marital, pre_diabetes$marital_new, useNA="always") #check re-categorization works
+
+# Categorization of BMI
+pre_diabetes <- pre_diabetes %>%
+  mutate(bmi_cat = case_when(bmi > 0 & bmi < 2500 ~ 0,
+                             bmi >= 2500 & bmi < 3000 ~ 1,
+                             bmi >= 3000 ~ 2),
+         bmi_cat = factor(bmi_cat, 0:2, c("Underweight/Normal","Overweight", "Obese"))) #make it as a factor variable
+ summary(pre_diabetes$bmi_cat)
+ by(pre_diabetes$bmi, pre_diabetes$bmi_cat, summary)
+ 
+summary(pre_diabetes)
+```
+
+### Complete case analysis
+```{r}
+pre_diabetes_ex <- pre_diabetes %>%
+  drop_na()
+head(pre_diabetes_ex)
+summary(pre_diabetes_ex)
+```
+
+### Check percentage of data excluded.
+```{r}
+100 - nrow(pre_diabetes_ex)/nrow(pre_diabetes) * 100 #53.73% --> Potential Bias can be seen as too many data was excluded
+```
+### Let's make sure we have enough cases in each exposure/outcome category. 
+
+```{r}
+table(pre_diabetes_ex$predia_binary, pre_diabetes_ex$smoking, pre_diabetes_ex$alcohol, pre_diabetes_ex$phy_act, pre_diabetes_ex$bmi_cat, pre_diabetes_ex$race, pre_diabetes_ex$marital_new, pre_diabetes_ex$education, pre_diabetes_ex$sex) # smoking category has <10 counts in both prediabetes and no prediabetes. 
+```
+
+### Adding labels
+```{r}
+# Adding Labels
+label(pre_diabetes_ex$sex)           = "Participants' Sex"
+label(pre_diabetes_ex$age)           = "Participants' Age"
+label(pre_diabetes_ex$race)          = "Participants' Race"
+label(pre_diabetes_ex$education)     = "Participants' Education"
+label(pre_diabetes_ex$marital_new)   = "Participants' Marital Status"
+label(pre_diabetes_ex$smoking)       = "Participants' Smoking Status"
+label(pre_diabetes_ex$alcohol)       = "Participants' Alcohol Drinking Status"
+label(pre_diabetes_ex$phy_act)       = "Participants' Physical Activity"
+label(pre_diabetes_ex$predia_binary) = "Participants' Diagnosed as Pre Diabetes"
+label(pre_diabetes_ex$bmi_cat)       = "Participants' BMI Category"
+```
+
+### Descriptive statistics
+```{r}
+# Table
+table1(~ age + sex + race + education + marital_new + smoking + alcohol + phy_act + bmi_cat | predia_binary,overall="Total", footnote='SD = standard deviation', data = pre_diabetes_ex)
+# Title:BRFSS Participants status of Pre-diabetes in terms of demographic characteristics and behavioral risk factors among BRFSS participants in 2020 (N = 185,975)
+```
+
+### Interpretation
+
+Participants' Age: Those who were diagnosed as prediabetes were older on average than those without prediabetes with mean ages of 59.3 (sd = 15.1) and 52.8 (sd = 18.1). Similarly, those who were diagnosed as prediabetes were older than those without prediabetes with median ages of 62 and 55.
+
+Participants' Sex: Overall, more females (56.8%) were diagnosed as prediabetes compared to their male counterparts (52.9%).
+
+Participants' Race: Among diagosed prediabetes participants, a higher percentage of prediabetes was seen among Black, Non-Hispanic (8.6% vs. 6.3%), followed by Asian (3.6% vs.2.6%), then among American Indian (2.1% vs. 1.4%), and Other race, Non-Hispanic (4.5% vs. 3.4%). The similar percentage of prediabetes and no prediabetes were observed among Hispanic populations. However, a lower percentage of prediabetes (72.3% vs. 77.8%) was seen among White, Non-Hispanic populations. 
+
+Participants' Education: A higher percentage of prediabetes was seen among those who did not graduate high school (6.0% vs. 5.7%). Similarly, those who attended college or technical school showed a higher percentage of prediabetes (30.0% vs. 28.1%). In contrast, a lower percentage of prediabetes was observed among those who graduated from collage or technical school (37.8% vs. 39.6%).
+
+Participants' Marital Status: A higher percentage of prediabetes was seen in married (54.4% vs. 52.8%), previously married (29.3% vs. 23.9%). However, a lower percentage of prediabetes was observed among singles (16.4% vs. 23.3%)
+
+Participants' Smoking Status: A lower percentage of prediabetes was seen in current user (10.4% vs. 14.7%).
+
+Participants' Alcohol Drinking Status: A higher percentage of prediabetes was seen in non current user (84.8% vs. 89.2%)
+
+Participants' Physical Activity: A higher percentage of prediabetes was seen in those who were physically inactive (26% vs. 20.5%).
+
+Participants' BMI category: A higher percentage of prediabetes was seen among obese people (47.4% vs. 26.5%).
+
+## Univariable (unadjusted) logistic model
+```{r}
+model1 <- glm(predia_binary ~ phy_act, data = pre_diabetes_ex, family="binomial")
+summary(model1)
+odds.n.ends(model1)
+```
+People who had no physical activities had 36% greater odds of having pre-diabetes than those who had physical activities (OR = 1.36; 95% CI 1.32,1.4).
+
+## Assumptions:  Linear relationship between continuous independent variable and log odds of outcome variable using the Box Tidwell test.
+```{r}
+pre_diabetes_ex <- pre_diabetes_ex %>%
+  mutate(age.times.logage = age * log(age)) 
+
+model0 <- glm(predia_binary ~ age + age.times.logage, data=pre_diabetes_ex, family="binomial") 
+summary(model0) 
+```
+A significant (i.e. p < .05) coefficient means the assumption IS VIOLATED and we should consider using a categorized measure of age.
+
+# Categorization of age
+```{r}
+pre_diabetes_ex <- pre_diabetes_ex %>%
+  mutate(age_cat = case_when(age >= 18 & age < 25 ~ 0,
+                             age >= 25 & age < 45 ~ 1,
+                             age >= 45 & age < 60 ~ 2,
+                             age >= 60 & age < 75 ~ 3,
+                             age >= 75 ~ 4),
+         age_cat = factor(age_cat, 0:4, c("18-24", "25-44", "45-59", "60-75", "75 years and above"))) 
+
+#check re-categorization works
+summary(pre_diabetes_ex$age_cat)
+by(pre_diabetes_ex$age, pre_diabetes_ex$age_cat, summary)
+```
+
+## Multivariable logistic regression 
+```{r}
+model2 <- glm(predia_binary ~ phy_act + age_cat + sex + race + education + marital_new +  smoking + alcohol + bmi_cat, data = pre_diabetes_ex, family="binomial")
+summary(model2)
+odds.n.ends(model2)
+compareCoefs(model1, model2)
+```
+After adjusting demographic variables, health impairing behaviors and BMI, people who had no physical activities had 7% greater odds of having prediabetes than those who had physical activities (OR = 1.07; 95% CI 1.04,1.1).
+
+### Assumptions: Multicollinearity assumptions using the vif function
+```{r}
+vif(model2)
+```
+No multicollinearity !
+
+### Assumptions: Influential observations using Cook's distance
+```{r}
+# Plot Cooks's Distance
+plot(model2, which = 4, id.n = 3, col="red")
+
+# Get Cook's calculations
+model2.data <- augment(model2) %>%  
+  mutate(index = 1:n()) 
+head(model2.data)
+```
+
+## Identify and exclude observations with a Cook's Distance greater than a cutoff, use 3 x the mean Cook's D
+```{r}
+# Model 2
+cuttoff <- mean(model2.data$.cooksd)*3 # defines cutoff variable
+pre_diabetes_out <- model2.data %>% # excludes observations
+  filter(.cooksd<cuttoff)
+nrow(pre_diabetes_out)/nrow(pre_diabetes_ex) # check percent kept --> 0.89
+```
+
+## Model after observations excluded
+```{r}
+model3 <- glm(predia_binary ~ phy_act + age_cat + sex + race + education + marital_new + smoking + alcohol + bmi_cat, data = pre_diabetes_out, family="binomial")
+summary(model3)
+odds.n.ends(model3)
+```
+
+### Compare coefficients between models with and without influential observations 
+```{r}
+compareCoefs(model2, model3) 
+```
+
+### Check tables (due to warnings)
+```{r}
+table(pre_diabetes_out$phy_act, pre_diabetes_out$predia_binary)
+table(pre_diabetes_ex$phy_act, pre_diabetes_ex$predia_binary)
+```
+
+### We excluded a lot of people with pre-diabetes. Then, we will exclude observations based on the Cook's D graph and (>.0035).
+```{r}
+cuttoff <- 0.00035 # defines cutoff variable
+pre_diabetes_out2 <- model2.data %>% # excludes observations
+  filter(.cooksd<cuttoff)
+nrow(pre_diabetes_out2)/nrow(pre_diabetes_ex) #check percent kept
+```
+
+### Rerun the model and compare before and after influential observations
+```{r}
+model4 <- glm(predia_binary ~ phy_act + age_cat + sex + race + education + marital_new + smoking + alcohol + bmi_cat, data = pre_diabetes_out2, family="binomial")
+summary(model4)
+odds.n.ends(model4)
+compareCoefs(model2, model4)
+```
+The results from model4 and model 2 are the same.
+
+### Model Fit: compare the full model to the reduced model with the lrtest function. 
+```{r}
+# likelihood ratio test: compare two nested mode ls
+lrtest(model1, model2)
+```
+A significant p-value<0.05 indicates an improvement in model fit after adjusting health impairing behavior, demographic variables and BMI.
+
+### AUC
+```{r}
+odds.n.ends(model2, rocPlot = TRUE, predProbPlot = TRUE)
+```
+This model predicts the outcome correctly 69% of the time (this model is better than flipping a coin).
+
+### Change the threshold
+```{r}
+odds.n.ends(model2, thresh = 0.3, predProbPlot=TRUE, rocPlot = TRUE)
+odds.n.ends(model2, thresh = 0.2, predProbPlot=TRUE, rocPlot = TRUE)
+```
+
+Changing the threshold can change the model sensitivity and specificity. (if the threshold is decreased, higher sensitivity results and lower specificity and vice versa)
+
+## Balancing n prediabetes and n no prediabetes to see the results. 
+```{r}
+# create new dataset with diabetes_binary = 0
+table(pre_diabetes_ex$predia_binary) # check size of diabetes cases
+
+set.seed(1) # so we can reproduce results
+
+prediabetes_ex_nopd <- sample_n(pre_diabetes_ex[which(pre_diabetes_ex$predia_binary=='No Prediabetes'),], size=26605,) # sample from non- prediabetes subjects 1:1 to get  the same number as diabetes cases
+
+prediabetes_ex_pd <-pre_diabetes_ex[which(pre_diabetes_ex$predia_binary =='Prediabetes'),] # prediabetes cases only
+
+prediabetes_ex_balance<- rbind(prediabetes_ex_nopd, prediabetes_ex_pd) # Combine these datasets by row 
+
+# check
+table(prediabetes_ex_balance$predia_binary)
+```
+
+# Run model 5
+```{r}
+model5 <- glm(predia_binary ~ phy_act + age_cat + sex + race + education + marital_new + smoking + alcohol + bmi_cat, data = prediabetes_ex_balance, family="binomial")
+summary(model5)
+odds.n.ends(model5, predProbPlot=TRUE, rocPlot = TRUE)
+```
+After balancing n prediabetes and n no prediabetes, people who had no physical activities had 7% greater odds of having pre-diabetes than those who had physical activities (OR = 1.07; 95% CI 1.03,1.12).
