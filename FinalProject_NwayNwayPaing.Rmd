@@ -1,7 +1,7 @@
 ---
-title: "Final Project"
-author: "Nway"
-date: "2022-10-19"
+title: "Association between Physical Inactivity and Prediabetes:A Study Based on the 2020 BRFSS in the United States"
+author: "Nway Nway Paing"
+date: "2022-12-7"
 output: html_document
 ---
 
@@ -120,8 +120,8 @@ summary(pre_diabetes_ex)
 ```{r}
 100 - nrow(pre_diabetes_ex)/nrow(pre_diabetes) * 100 #53.73% --> Potential Bias can be seen as too many data was excluded
 ```
-### Let's make sure we have enough cases in each exposure/outcome category. 
 
+### Let's make sure we have enough cases in each exposure/outcome category. 
 ```{r}
 table(pre_diabetes_ex$predia_binary, pre_diabetes_ex$smoking, pre_diabetes_ex$alcohol, pre_diabetes_ex$phy_act, pre_diabetes_ex$bmi_cat, pre_diabetes_ex$race, pre_diabetes_ex$marital_new, pre_diabetes_ex$education, pre_diabetes_ex$sex) # smoking category has <10 counts in both prediabetes and no prediabetes. 
 ```
@@ -144,7 +144,7 @@ label(pre_diabetes_ex$bmi_cat)       = "Participants' BMI Category"
 ### Descriptive statistics
 ```{r}
 # Table
-table1(~ age + sex + race + education + marital_new + smoking + alcohol + phy_act + bmi_cat | predia_binary,overall="Total", footnote='SD = standard deviation', data = pre_diabetes_ex)
+table1(~ age + sex + race + education + marital_new + smoking + alcohol + phy_act + bmi_cat | predia_binary,overall="Total", footnote='SD = standard deviation',rowlabelhead="Variables", data = pre_diabetes_ex)
 # Title:BRFSS Participants status of Pre-diabetes in terms of demographic characteristics and behavioral risk factors among BRFSS participants in 2020 (N = 185,975)
 ```
 
@@ -254,7 +254,7 @@ table(pre_diabetes_out$phy_act, pre_diabetes_out$predia_binary)
 table(pre_diabetes_ex$phy_act, pre_diabetes_ex$predia_binary)
 ```
 
-### We excluded a lot of people with pre-diabetes. Then, we will exclude observations based on the Cook's D graph and (>.0035).
+### We excluded a lot of people with pre-diabetes. Then, we will exclude observations based on the Cook's D graph and (>.00035).
 ```{r}
 cuttoff <- 0.00035 # defines cutoff variable
 pre_diabetes_out2 <- model2.data %>% # excludes observations
@@ -269,7 +269,7 @@ summary(model4)
 odds.n.ends(model4)
 compareCoefs(model2, model4)
 ```
-The results from model4 and model 2 are the same.
+The results from model4 and model 2 are the same.We will interpret results using model 2.
 
 ### Model Fit: compare the full model to the reduced model with the lrtest function. 
 ```{r}
